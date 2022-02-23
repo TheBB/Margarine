@@ -119,9 +119,14 @@ def draw_hex(drawer, x, y, r, dy, color, w=3):
 class ImageMask:
 
     def __init__(self, path_or_fp, blur=0, default=Overlay.Transparent, target=Overlay.Nothing, require_privilege=False):
-        self.image = image = Image.open(path_or_fp)
+        image = Image.open(path_or_fp)
+        w, h = image.size
+        fac = w / 1920 if w / h > 1920 / 1080 else h / 1080
+        nw, nh = int(w / fac), int(h / fac)
+        image = image.resize((nw, nh))
+        self.image = image
 
-        blur_size = blur * max(image.size) / 1000
+        blur_size = blur * max(image.size) / 700
         self.blurred_image = image.filter(ImageFilter.GaussianBlur(blur_size))
 
         width, height = image.size
