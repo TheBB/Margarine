@@ -1,5 +1,5 @@
 from pathlib import Path
-import sqlite3
+import peewee as pw
 
 from xdg.BaseDirectory import xdg_config_home, xdg_data_home
 
@@ -21,66 +21,68 @@ class Config:
 (Path(xdg_data_home) / 'margarine').mkdir(parents=True, exist_ok=True)
 
 config = Config(Path(xdg_config_home) / 'margarine' / 'config.yaml')
-db = sqlite3.connect(Path(xdg_data_home) / 'margarine' / 'db.sqlite3')
-
-cur = db.cursor()
-cur.execute("""
-    CREATE TABLE IF NOT EXISTS pictures (
-        id integer primary key,
-        image blob,
-        mask text,
-        fingerprint integer,
-        seen integer default 0
-    )
-""")
-db.commit()
+db = pw.SqliteDatabase(Path(xdg_data_home) / 'margarine' / 'db.sqlite3')
+db.connect()
 
 
-def insert_image(image, mask, fingerprint):
-    cur.execute(
-        'INSERT INTO pictures (image, mask, fingerprint) VALUES (?, ?, ?)',
-        (image, mask, fingerprint)
-    )
-    db.commit()
+# cur = db.cursor()
+# cur.execute("""
+#     CREATE TABLE IF NOT EXISTS pictures (
+#         id integer primary key,
+#         image blob,
+#         mask text,
+#         fingerprint integer,
+#         seen integer default 0
+#     )
+# """)
+# db.commit()
 
 
-def get_image(ident=None):
-    if ident is None:
-        cur.execute("""
-            SELECT id, image, mask, fingerprint
-            FROM pictures
-            WHERE seen = 0
-            ORDER BY RANDOM() LIMIT 1;
-        """)
-        retval = cur.fetchone()
-        if retval is None:
-            cur.execute('UPDATE pictures SET seen=0')
-            db.commit()
-            return get_image()
-        return retval
-    else:
-        cur.execute("""
-            SELECT id, image, mask, fingerprint
-            FROM pictures WHERE id = ?;
-        """, (ident,))
-    return cur.fetchone()
+# def insert_image(image, mask, fingerprint):
+#     cur.execute(
+#         'INSERT INTO pictures (image, mask, fingerprint) VALUES (?, ?, ?)',
+#         (image, mask, fingerprint)
+#     )
+#     db.commit()
 
 
-def delete_image(ident):
-    cur.execute('DELETE FROM pictures WHERE id=?', (ident,))
-    db.commit()
+# def get_image(ident=None):
+#     if ident is None:
+#         cur.execute("""
+#             SELECT id, image, mask, fingerprint
+#             FROM pictures
+#             WHERE seen = 0
+#             ORDER BY RANDOM() LIMIT 1;
+#         """)
+#         retval = cur.fetchone()
+#         if retval is None:
+#             cur.execute('UPDATE pictures SET seen=0')
+#             db.commit()
+#             return get_image()
+#         return retval
+#     else:
+#         cur.execute("""
+#             SELECT id, image, mask, fingerprint
+#             FROM pictures WHERE id = ?;
+#         """, (ident,))
+#     return cur.fetchone()
 
 
-def mark_seen(ident):
-    cur.execute('UPDATE pictures SET seen=1 WHERE id=?', (ident,))
-    db.commit()
+# def delete_image(ident):
+#     cur.execute('DELETE FROM pictures WHERE id=?', (ident,))
+#     db.commit()
 
 
-def get_fingerprints():
-    cur.execute('SELECT id, fingerprint FROM pictures;')
-    while True:
-        data = cur.fetchone()
-        if data is not None:
-            yield data
-        else:
-            break
+# def mark_seen(ident):
+#     cur.execute('UPDATE pictures SET seen=1 WHERE id=?', (ident,))
+#     db.commit()
+
+
+# def get_fingerprints():
+#     cur.execute('SELECT id, fingerprint FROM pictures;')
+#     while True:
+#         data = cur.fetchone()
+#         if data is not None:
+#             yield data
+#         else:
+#             break

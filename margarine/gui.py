@@ -49,11 +49,12 @@ def key_to_text(event):
 
 class ImageView(QLabel):
 
-    def __init__(self, masker=None):
+    def __init__(self, parent, masker=None):
         super().__init__()
         self.setMinimumSize(1, 1)
         self.setAlignment(Qt.Alignment(0x84))
         self.masker = masker
+        self.parent = parent
 
         if masker:
             self.orig_pixmap = masker.make_image()
@@ -73,30 +74,35 @@ class ImageView(QLabel):
     def resizeEvent(self, event):
         self.resize()
 
-    def reveal(self, x, y, method='modify'):
-        if not self.masker:
-            pass
-
+    def relative(self, event):
         pixmap = self.pixmap()
         px = self.width() - pixmap.width()
         py = self.height() - pixmap.height()
-        relx = (x - px / 2) / pixmap.width()
-        rely = (y - py / 2) / pixmap.height()
+        relx = (event.x() - px / 2) / pixmap.width()
+        rely = (event.y() - py / 2) / pixmap.height()
+        return relx, rely
 
-        changed = getattr(self.masker, method)(relx, rely)
-        if changed:
-            self.orig_pixmap = self.masker.make_image()
-            self.resize()
+
+    # def reveal(self, x, y, method='modify'):
+    #     if not self.masker:
+    #         pass
+
+    #     pixmap = self.pixmap()
+    #     px = self.width() - pixmap.width()
+    #     py = self.height() - pixmap.height()
+    #     relx = (x - px / 2) / pixmap.width()
+    #     rely = (y - py / 2) / pixmap.height()
+
+    #     changed = getattr(self.masker, method)(relx, rely)
+    #     if changed:
+    #         self.orig_pixmap = self.masker.make_image()
+    #         self.resize()
 
     def mouseMoveEvent(self, event):
-        if event.buttons() & Qt.LeftButton:
-            self.reveal(event.x(), event.y())
-        elif event.buttons() & Qt.RightButton:
-            self.reveal(event.x(), event.y(), 'undo')
+        self.parent.program.mouse(*self.relative(event), event.buttons() & Qt.LeftButton)
 
     def mousePressEvent(self, event):
-        method = 'undo' if event.buttons() & Qt.RightButton else 'modify'
-        self.reveal(event.x(), event.y(), method)
+        self.parent.program.mouse(*self.relative(event), event.buttons() & Qt.LeftButton)
 
 
 class MainWidget(QWidget):
@@ -104,7 +110,8 @@ class MainWidget(QWidget):
     def __init__(self, program):
         super().__init__()
 
-        self.image = ImageView()
+        self.stack = []
+        self.image = ImageView(self)
 
         self.label = QLabel()
         self.label.setMaximumHeight(25)
@@ -118,12 +125,6 @@ class MainWidget(QWidget):
         self.setLayout(QVBoxLayout())
         self.layout().addWidget(self.image)
         self.layout().addWidget(self.label)
-
-        self.program = program
-        program.new_masker.connect(self.new_masker)
-        program.new_message.connect(self.new_message)
-        program.new_flash.connect(self.new_flash)
-        program.must_exit.connect(self.must_exit)
 
         self.timer = QTimer(self)
         self.timer.setSingleShot(False)
@@ -140,7 +141,27 @@ class MainWidget(QWidget):
         font-weight: bold;
         """)
 
+        self.launch_program(program)
+
+    @property
+    def program(self):
+        return self.stack[-1]
+
+    def launch_program(self, program):
+        self.stack.append(program)
+        program.new_masker.connect(self.new_masker)
+        program.new_message.connect(self.new_message)
+        program.new_flash.connect(self.new_flash)
+        program.launch_subprogram.connect(self.launch_program)
+        program.dispatch_program.connect(self.dispatch_program)
         program.start()
+
+    def dispatch_program(self, result):
+        self.stack.pop()
+        if self.stack:
+            self.stack[-1].restart(result)
+        else:
+            QApplication.instance().quit()
 
     def resize(self):
         self.overlay.setGeometry(0, self.height()//2 - 150, self.width(), 300)
@@ -161,9 +182,6 @@ class MainWidget(QWidget):
             self.overlay.setVisible(True)
         else:
             self.overlay.setVisible(False)
-
-    def must_exit(self):
-        QApplication.instance().quit()
 
     def key(self, text):
         if text == 'C-t':
