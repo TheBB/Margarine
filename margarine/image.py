@@ -42,7 +42,8 @@ class Picture(pw.Model):
     mask_ny = pw.IntegerField()
     mask_rfac = pw.DoubleField()
     _fingerprint = pw.IntegerField(column_name='fingerprint')
-    seen = pw.BooleanField(default=0)
+    seen = pw.BooleanField(default=False)
+    revisit = pw.BooleanField(default=False)
 
     @cached_property
     def raw_image(self):
@@ -54,6 +55,7 @@ class Picture(pw.Model):
     @cached_property
     def image(self):
         img = self.raw_image
+        img = img.convert('RGBA')
         w, h = img.size
         fac = w / 1920 if w / h > 1920 / 1080 else h / 1080
         nw, nh = int(w / fac), int(h / fac)
@@ -81,7 +83,17 @@ class Picture(pw.Model):
     def from_db(cls, ident=None):
         if ident is not None:
             return cls.get(cls.ident == ident)
-        return cls.select().order_by(pw.fn.RANDOM()).get()
+        query = cls.select().where(cls.seen == False)
+        if not query.exists():
+            cls.update(seen=False).execute()
+        return query.order_by(pw.fn.RANDOM()).get()
+
+    @classmethod
+    def get_revisit(cls):
+        query = cls.select().where(cls.revisit == True)
+        if not query.exists():
+            return None
+        return query.get()
 
     def mark_seen(self):
         self.seen = True
@@ -102,7 +114,6 @@ class Picture(pw.Model):
     def find_colliding_pictures(self, threshold=10):
         fingerprint = self.compute_fingerprint()
         for other in Picture.select():
-            untonk(other.fingerprint)
             diff = np.count_nonzero(fingerprint != other.fingerprint)
             if diff < threshold:
                 yield other

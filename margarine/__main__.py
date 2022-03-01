@@ -1,7 +1,7 @@
 import click
 from random import shuffle
 
-from .program import ClassifyProgram, DatabaseProgram
+from .program import ClassifyProgram, DatabaseProgram, RevisitProgram
 from .gui import run_gui
 
 
@@ -20,6 +20,11 @@ def classify(random, filenames):
     if random:
         shuffle(filenames)
     run_gui(ClassifyProgram(filenames))
+
+
+@main.command()
+def revisit():
+    run_gui(RevisitProgram())
 
 
 @main.command()

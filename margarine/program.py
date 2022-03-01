@@ -100,6 +100,9 @@ class DisplayImageProgram(Program):
     def key(self, text):
         if text == 'b':
             self.uncover()
+        elif text == 'r':
+            self.picture.revisit = True
+            self.picture.save()
         else:
             self._close()
 
@@ -252,6 +255,72 @@ class ClassifyImageProgram(Program):
         self.picture.save()
 
 
+class RevisitImageProgram(Program):
+
+    def __init__(self, picture, levels):
+        super().__init__()
+        self.levels = levels
+        self.picture = picture
+        self.orig_mask = picture.mask
+        self.manager = self.picture.mask_manager()
+        self.mask = self.manager.zeros(dtype=int)
+        self.masker = MaskPicker(self.manager, set(np.where(self.mask >= 0)[0]))
+        self.masker.vis[(self.orig_mask > 0) & (self.mask >= 0)] = 2
+        self.current_level = 1
+
+    def start(self):
+        self.new_masker.emit(self.masker)
+        self.new_message.emit(f"{self.picture.ident} - select: {self.levels[self.current_level]}")
+
+    def next_level(self):
+        self.mask[self.masker.marked] = self.current_level
+        self.masker = MaskPicker(self.manager, set(np.where(self.mask >= self.current_level)[0]))
+        self.masker.vis[(self.orig_mask > self.current_level) & (self.mask >= self.current_level)] = 2
+        self.current_level += 1
+
+        if self.current_level < len(self.levels):
+            self.new_message.emit(f"{self.picture.ident} - select: {self.levels[self.current_level]}")
+            self.new_masker.emit(self.masker)
+        else:
+            self.commit_to_db()
+            self._close()
+
+    def undo(self):
+        if self.current_level < 2:
+            return
+
+        self.current_level -= 1
+
+        l = self.current_level - 1
+        was_selected = np.where(self.mask > l)
+        self.mask[np.where(self.mask >= l)] = l
+        self.masker = MaskPicker(self.manager, set(np.where(self.mask >= l)[0]))
+        self.masker.vis[was_selected] = 2
+        self.new_message.emit(f"{self.picture.filename} - select: {self.levels[self.current_level]}")
+        self.new_masker.emit(self.masker)
+
+    def mouse(self, relx, rely, left):
+        value = 2 if left else 1
+        if self.masker.modify(relx, rely, value=value):
+            self.new_masker.emit(self.masker)
+
+    def key(self, text):
+        if text == 'i':
+            self.masker.invert()
+            self.new_masker.emit(self.masker)
+        elif text == 'C-x':
+            self._close()
+        elif text == 'u':
+            self.undo()
+        else:
+            self.next_level()
+
+    def commit_to_db(self):
+        self.picture._mask = ','.join(map(str, self.mask))
+        self.picture.revisit = False
+        self.picture.save()
+
+
 class ClassifyProgram(Program):
 
     def __init__(self, filenames):
@@ -272,3 +341,23 @@ class ClassifyProgram(Program):
 
     def restart(self, _):
         self.next_image()
+
+
+class RevisitProgram(Program):
+
+    def __init__(self):
+        super().__init__()
+
+    def next_image(self):
+        image = Picture.get_revisit()
+        if image is None:
+            self._close()
+            return
+        self.launch_subprogram.emit(RevisitImageProgram(image, config.block_levels))
+
+    def start(self):
+        self.next_image()
+
+    def restart(self, _):
+        self.next_image()
+
