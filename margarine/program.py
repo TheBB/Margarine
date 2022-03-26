@@ -103,6 +103,9 @@ class DisplayImageProgram(Program):
         elif text == 'r':
             self.picture.revisit = True
             self.picture.save()
+        elif text == 'e':
+            self.picture.eject()
+            self._close()
         else:
             self._close()
 
@@ -147,7 +150,7 @@ class CollisionProgram(Program):
         if text in ('LEFT', 'BSP'):
             self.previous_image()
         elif text == 'r':
-            self.pictures[0].dispatch('.margarine-skipped', relative=True, as_dir=True)
+            self.pictures[0].dispatch('.margarine-skipped', relative=True, as_dir=True, delete=True)
             self._close(False)
         elif text == 'a':
             self._close(True)
@@ -181,7 +184,7 @@ class ClassifyImageProgram(Program):
         self.manager = self.picture.mask_manager()
         self.mask = self.manager.zeros(dtype=int)
         self.masker = MaskPicker(self.manager, set(np.where(self.mask >= 0)[0]))
-        self.current_level = 1
+        self.current_level = len(levels)
 
     def start(self):
         collisions = list(self.picture.find_colliding_pictures())
@@ -198,32 +201,32 @@ class ClassifyImageProgram(Program):
 
     def start_classification(self):
         self.new_masker.emit(self.masker)
-        self.new_message.emit(f"{self.picture.filename} - select: {self.levels[self.current_level]}")
+        self.new_message.emit(f"{self.picture.filename} - select: {self.levels[self.current_level - 1]}")
 
     def next_level(self):
         self.mask[self.masker.marked] = self.current_level
-        self.masker = MaskPicker(self.manager, set(np.where(self.mask >= self.current_level)[0]))
-        self.current_level += 1
+        self.masker = MaskPicker(self.manager, set(np.where(self.mask < self.current_level)[0]))
+        self.current_level -= 1
 
-        if self.current_level < len(self.levels):
-            self.new_message.emit(f"{self.picture.filename} - select: {self.levels[self.current_level]}")
+        if self.current_level > 0:
+            self.new_message.emit(f"{self.picture.filename} - select: {self.levels[self.current_level - 1]}")
             self.new_masker.emit(self.masker)
         else:
             self.commit_to_db()
             self._close()
 
     def undo(self):
-        if self.current_level < 2:
+        if self.current_level >= len(self.levels):
             return
 
-        self.current_level -= 1
+        self.current_level += 1
 
         l = self.current_level - 1
-        was_selected = np.where(self.mask > l)
-        self.mask[np.where(self.mask >= l)] = l
-        self.masker = MaskPicker(self.manager, set(np.where(self.mask >= l)[0]))
+        was_selected = np.where(self.mask == self.current_level)
+        self.mask[np.where(self.mask <= l)] = 0
+        self.masker = MaskPicker(self.manager, set(np.where(self.mask <= self.current_level)[0]))
         self.masker.vis[was_selected] = 2
-        self.new_message.emit(f"{self.picture.filename} - select: {self.levels[self.current_level]}")
+        self.new_message.emit(f"{self.picture.filename} - select: {self.levels[self.current_level - 1]}")
         self.new_masker.emit(self.masker)
 
     def mouse(self, relx, rely, left):
@@ -235,10 +238,13 @@ class ClassifyImageProgram(Program):
         if text == 'i':
             self.masker.invert()
             self.new_masker.emit(self.masker)
+        elif text == 't':
+            self.masker.translucency = 180 - self.masker.translucency
+            self.new_masker.emit(self.masker)
         elif text == 'x':
             self._close()
         elif text == 'C-x':
-            self.picture.dispatch('.margarine-skipped', relative=True, as_dir=True)
+            self.picture.dispatch('.margarine-skipped', relative=True, as_dir=True, delete=True)
             self._close()
         elif text == 'u':
             self.undo()
@@ -246,7 +252,7 @@ class ClassifyImageProgram(Program):
             self.next_level()
 
     def commit_to_db(self):
-        self.picture.dispatch('.margarine-done', relative=True, as_dir=True)
+        self.picture.dispatch('.margarine-done', relative=True, as_dir=True, delete=True)
 
         self.picture.mask_nx = self.manager.nx
         self.picture.mask_ny = self.manager.ny
@@ -265,38 +271,38 @@ class RevisitImageProgram(Program):
         self.manager = self.picture.mask_manager()
         self.mask = self.manager.zeros(dtype=int)
         self.masker = MaskPicker(self.manager, set(np.where(self.mask >= 0)[0]))
-        self.masker.vis[(self.orig_mask > 0) & (self.mask >= 0)] = 2
-        self.current_level = 1
+        self.current_level = len(levels)
+        self.masker.vis[(self.orig_mask == self.current_level) & (self.mask < self.current_level)] = 2
 
     def start(self):
         self.new_masker.emit(self.masker)
-        self.new_message.emit(f"{self.picture.ident} - select: {self.levels[self.current_level]}")
+        self.new_message.emit(f"{self.picture.ident} - select: {self.levels[self.current_level - 1]}")
 
     def next_level(self):
         self.mask[self.masker.marked] = self.current_level
-        self.masker = MaskPicker(self.manager, set(np.where(self.mask >= self.current_level)[0]))
-        self.masker.vis[(self.orig_mask > self.current_level) & (self.mask >= self.current_level)] = 2
-        self.current_level += 1
+        self.masker = MaskPicker(self.manager, set(np.where(self.mask < self.current_level)[0]))
+        self.current_level -= 1
+        self.masker.vis[(self.orig_mask == self.current_level) & (self.mask < self.current_level)] = 2
 
-        if self.current_level < len(self.levels):
-            self.new_message.emit(f"{self.picture.ident} - select: {self.levels[self.current_level]}")
+        if self.current_level > 0:
+            self.new_message.emit(f"{self.picture.ident} - select: {self.levels[self.current_level - 1]}")
             self.new_masker.emit(self.masker)
         else:
             self.commit_to_db()
             self._close()
 
     def undo(self):
-        if self.current_level < 2:
+        if self.current_level >= len(self.levels):
             return
 
-        self.current_level -= 1
+        self.current_level += 1
 
         l = self.current_level - 1
-        was_selected = np.where(self.mask > l)
-        self.mask[np.where(self.mask >= l)] = l
-        self.masker = MaskPicker(self.manager, set(np.where(self.mask >= l)[0]))
+        was_selected = np.where(self.mask == self.current_level)
+        self.mask[np.where(self.mask < self.current_level)] = 0
+        self.masker = MaskPicker(self.manager, set(np.where(self.mask <= self.current_level)[0]))
         self.masker.vis[was_selected] = 2
-        self.new_message.emit(f"{self.picture.filename} - select: {self.levels[self.current_level]}")
+        self.new_message.emit(f"{self.picture.filename} - select: {self.levels[self.current_level - 1]}")
         self.new_masker.emit(self.masker)
 
     def mouse(self, relx, rely, left):
@@ -307,6 +313,9 @@ class RevisitImageProgram(Program):
     def key(self, text):
         if text == 'i':
             self.masker.invert()
+            self.new_masker.emit(self.masker)
+        elif text == 't':
+            self.masker.translucency = 180 - self.masker.translucency
             self.new_masker.emit(self.masker)
         elif text == 'C-x':
             self._close()
@@ -347,10 +356,12 @@ class RevisitProgram(Program):
 
     def __init__(self):
         super().__init__()
+        self.pictures = iter(Picture.select().where(Picture.revisit == True))
 
     def next_image(self):
-        image = Picture.get_revisit()
-        if image is None:
+        try:
+            image = next(self.pictures)
+        except StopIteration:
             self._close()
             return
         self.launch_subprogram.emit(RevisitImageProgram(image, config.block_levels))

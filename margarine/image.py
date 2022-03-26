@@ -83,7 +83,7 @@ class Picture(pw.Model):
     def from_db(cls, ident=None):
         if ident is not None:
             return cls.get(cls.ident == ident)
-        query = cls.select().where(cls.seen == False)
+        query = cls.select().where(cls.seen == False, cls.revisit == False)
         if not query.exists():
             cls.update(seen=False).execute()
         return query.order_by(pw.fn.RANDOM()).get()
@@ -140,7 +140,7 @@ class Picture(pw.Model):
     def eject(self):
         name = f'ejected-{uuid.uuid1()}.png'
         self.image.save(name, 'PNG')
-        config.delete_image(self.ident)
+        self.delete_instance()
 
 
 class MaskManager:
@@ -286,6 +286,7 @@ class MaskPicker:
         self.manager = manager
         self.vis = self.manager.zeros(dtype=int)
         self.vis[list(allowed_indices)] = 1
+        self.translucency = 180
 
     @property
     def marked(self):
@@ -302,11 +303,11 @@ class MaskPicker:
 
         for ix, vis in enumerate(self.vis):
             if vis == 0:
-                self.manager.draw_hex(drawer, ix, (0, 0, 0, 128), width=w)
+                self.manager.draw_hex(drawer, ix, (0, 0, 0, self.translucency), width=w)
             elif vis == 1:
                 self.manager.draw_hex(drawer, ix, (0, 0, 0, 0), width=w)
             elif vis == 2:
-                self.manager.draw_hex(drawer, ix, (255, 0, 0, 128), width=w)
+                self.manager.draw_hex(drawer, ix, (255, 0, 0, self.translucency * 128 // 180), width=w)
 
         m = self.manager.image.copy()
         m.paste(mask, (0, 0), mask)
