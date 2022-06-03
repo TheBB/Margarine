@@ -161,7 +161,7 @@ class MainWidget(QWidget):
         if self.stack:
             self.stack[-1].restart(result)
         else:
-            QApplication.instance().quit()
+            sys.exit(0)
 
     def resize(self):
         self.overlay.setGeometry(0, self.height()//2 - 150, self.width(), 300)

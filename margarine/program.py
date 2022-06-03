@@ -371,4 +371,3 @@ class RevisitProgram(Program):
 
     def restart(self, _):
         self.next_image()
-

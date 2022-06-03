@@ -1,7 +1,7 @@
 from pathlib import Path
 import peewee as pw
 
-from xdg.BaseDirectory import xdg_config_home, xdg_data_home
+from xdg import xdg_config_home, xdg_data_home
 
 import yaml
 
@@ -18,10 +18,10 @@ class Config:
         self.messages = data.get('messages', [])
 
 
-(Path(xdg_data_home) / 'margarine').mkdir(parents=True, exist_ok=True)
+(xdg_data_home() / 'margarine').mkdir(parents=True, exist_ok=True)
 
-config = Config(Path(xdg_config_home) / 'margarine' / 'config.yaml')
-db = pw.SqliteDatabase(Path(xdg_data_home) / 'margarine' / 'db.sqlite3')
+config = Config(xdg_config_home() / 'margarine' / 'config.yaml')
+db = pw.SqliteDatabase(xdg_data_home() / 'margarine' / 'db.sqlite3')
 db.connect()
 
 
