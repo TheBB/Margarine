@@ -1,7 +1,11 @@
 import click
+from functools import partial
 from random import shuffle
 
-from .program import ClassifyProgram, DatabaseProgram, RevisitProgram
+from .program import (
+    AllImagesProgram, ClassifyProgram, DatabaseProgram, RevisitProgram,
+    DisplayHeatmapProgram, DisplayImageProgram
+)
 from .gui import run_gui
 
 
@@ -28,7 +32,22 @@ def revisit():
 
 
 @main.command()
-@click.option('--level-min', 'lowest_level', type=int, default=0)
-@click.option('--level-max', 'highest_level', type=int, default=2)
-def slideshow(**kwargs):
-    run_gui(DatabaseProgram(**kwargs))
+def all_images():
+    run_gui(AllImagesProgram())
+
+
+@main.command()
+@click.option('--level-min', 'lowest_level', type=float, default=0)
+@click.option('--level-max', 'highest_level', type=float, default=3)
+def slideshow(lowest_level, highest_level):
+    displayer = partial(
+        DisplayImageProgram,
+        lo=min(lowest_level, highest_level),
+        hi=highest_level,
+    )
+    run_gui(DatabaseProgram(displayer))
+
+
+@main.command()
+def heatmap():
+    run_gui(DatabaseProgram(DisplayHeatmapProgram))

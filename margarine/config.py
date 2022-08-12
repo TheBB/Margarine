@@ -12,10 +12,14 @@ class Config:
         with open(path, 'r') as f:
             data = yaml.safe_load(f)
         self.block_levels = data.get('levels', ['A', 'B', 'C'])
-        self.blur = data.get('blur', 40)
         self.advance_prob = data.get('advance-prob', 0.0)
         self.message_prob = data.get('message-prob', 0.0)
         self.messages = data.get('messages', [])
+        self.step = data.get('step', 0.1)
+
+        blurs = data.get('blurs', [40])
+        ampl = data.get('blur-amplify', 1.0)
+        self.blurs = [b * ampl for b in blurs]
 
 
 (xdg_data_home() / 'margarine').mkdir(parents=True, exist_ok=True)

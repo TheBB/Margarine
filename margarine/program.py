@@ -9,7 +9,7 @@ from PyQt5.QtCore import pyqtSignal, QObject
 import numpy as np
 
 from .config import config
-from .image import MaskManager, Picture, BlurMask, MaskPicker, PureMask
+from .image import GradualBlurMask, MaskManager, Picture, MaskPicker, PureMask, HeatmapMask
 
 
 def shuffle(nums):
@@ -80,19 +80,18 @@ class RevealPlan:
 
 class DisplayImageProgram(Program):
 
-    def __init__(self, picture: Picture, lo: int = 0, hi: int = -1):
+    def __init__(self, picture: Picture, lo: float = 0.0, hi: float = 100.0, show_message: bool = True):
         super().__init__()
         self.picture = picture
+        self.show_message = show_message
         manager = picture.mask_manager()
-        self.plan = RevealPlan(picture, manager, lo, hi)
-        self.mask = BlurMask(manager, blur=config.blur)
-        self.mask.uncover(self.plan.initial, privilege=True)
+        self.mask = GradualBlurMask(manager, picture.mask, blurs=config.blurs, start_coeff=lo, max_coeff=hi, step=config.step)
 
     def start(self):
         self.new_masker.emit(self.mask)
         self.new_message.emit(f"ID {self.picture.ident}")
 
-        if random.random() < config.message_prob / 100:
+        if random.random() < config.message_prob / 100 and self.show_message:
             self.new_flash.emit(random.choice(config.messages))
         else:
             self.new_flash.emit(None)
@@ -110,26 +109,56 @@ class DisplayImageProgram(Program):
             self._close()
 
     def uncover(self):
-        try:
-            index = next(self.plan)
-        except StopIteration:
-            return
+        if self.mask.uncover(privilege=True):
+            self.new_masker.emit(self.mask)
 
-        self.mask.uncover(index, privilege=True)
+
+class DisplayHeatmapProgram(Program):
+
+    def __init__(self, picture: Picture):
+        super().__init__()
+        self.picture = picture
+        manager = picture.mask_manager()
+        self.mask = HeatmapMask(manager, picture.mask)
+
+    def start(self):
         self.new_masker.emit(self.mask)
+        self.new_message.emit(f"ID {self.picture.ident}")
+
+    def key(self, text):
+        self._close()
+
+
+class AllImagesProgram(Program):
+
+    def __init__(self):
+        super().__init__()
+        self.images = iter(Picture.select().order_by(Picture.ident))
+
+    def start(self):
+        self.next_image()
+
+    def restart(self, _):
+        self.next_image()
+
+    def next_image(self):
+        try:
+            image = next(self.images)
+            self.launch_subprogram.emit(DisplayImageProgram(image, 100, 100, show_message=False))
+        except StopIteration:
+            self._close()
 
 
 class DatabaseProgram(Program):
 
-    def __init__(self, lowest_level=0, highest_level=-1):
+    def __init__(self, displayer):
         super().__init__()
-        self.lowest_level = lowest_level
-        self.highest_level = highest_level
+        self.displayer = displayer
 
     def next_image(self):
         picture = Picture.from_db()
         picture.mark_seen()
-        self.launch_subprogram.emit(DisplayImageProgram(picture, self.lowest_level, self.highest_level))
+        self.launch_subprogram.emit(self.displayer(picture))
 
     def start(self):
         self.next_image()

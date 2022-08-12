@@ -1,6 +1,7 @@
 from bisect import bisect
 from enum import IntEnum
 from io import BytesIO
+from math import floor
 from pathlib import Path
 import shutil
 import imagehash
@@ -73,6 +74,7 @@ class Picture(pw.Model):
 
     @classmethod
     def from_file(cls, filename):
+        print(filename)
         with open(filename, 'rb') as buf:
             image = buf.read()
         obj = cls(_image=image)
@@ -237,48 +239,103 @@ class MaskManager:
         return retval
 
 
-class BlurMask:
+def mk_heatmap(manager, raw):
+    avger = np.zeros((len(raw), len(raw)))
+    for i, n in enumerate(manager.neighbors):
+        n = [q for q in n if q >= 0]
+        avger[i][n] = 1/6
 
-    def __init__(self, manager: MaskManager, blur=0, require_privilege=False):
+    heatmap = raw
+    for _ in range(100):
+        heatmap = avger @ heatmap
+        heatmap = (heatmap - np.min(heatmap)) / (np.max(heatmap) - np.min(heatmap))
+        heatmap = heatmap * (np.max(raw) - np.min(raw)) + np.min(raw)
+        heatmap = np.maximum(heatmap, raw)
+    return heatmap
+
+
+class HeatmapMask:
+
+    def __init__(self, manager: MaskManager, raw: np.ndarray):
         self.manager = manager
-
-        blur_size = blur * max(self.manager.image.size) / 700
-        self.blurred_image = self.manager.image.filter(ImageFilter.GaussianBlur(blur_size))
-        self.vis = self.manager.zeros(dtype=bool)
-
-        self.require_privilege = require_privilege
+        self.translucency = 200
+        self.heatmap = mk_heatmap(manager, raw)
 
     def make_image(self):
         mask = Image.new('RGBA', self.manager.image.size)
         mask.paste(self.manager.image, (0, 0))
-        # mask = self.manager.image.convert('RGBA')
         drawer = ImageDraw.Draw(mask)
 
         width, height = self.manager.image.size
         fac = max(width / 1920, height / 1080)
         w = int(4 * fac)
 
-        for ix in np.where(~self.vis)[0]:
-            self.manager.draw_hex(drawer, ix, (0, 0, 0, 0), width=w)
+        maxval = np.max(self.heatmap)
+        for ix, val in enumerate(self.heatmap):
+            heat = int(val / maxval * 255)
+            self.manager.draw_hex(drawer, ix, (heat, heat, heat, self.translucency), width=w)
 
-        image = self.blurred_image.copy()
-        image.paste(mask, (0, 0), mask)
+        m = self.manager.image.copy()
+        m.paste(mask, (0, 0), mask)
+        m = m.convert('RGBA')
+        self.qimage = ImageQt.ImageQt(m)
+        return QPixmap.fromImage(self.qimage)
+
+
+class GradualBlurMask:
+
+    def __init__(self, manager: MaskManager, raw: np.ndarray, blurs=[0], require_privilege=False, start_coeff = 0.0, max_coeff = 100.0, step = 0.1):
+        self.manager = manager
+        self.heatmap = mk_heatmap(manager, raw)
+        self.coeff = start_coeff
+        self.max_coeff = max_coeff
+        self.require_privilege = require_privilege
+        self.step = step
+
+        blur_sizes = [b * max(self.manager.image.size) / 700 for b in blurs]
+        self.nsteps = len(blur_sizes)
+        self.blurred_images = [
+            self.manager.image.filter(ImageFilter.GaussianBlur(blur))
+            for blur in blur_sizes
+        ]
+
+    def make_image(self):
+        blurs = [b.copy() for b in self.blurred_images]
+        drawers = [ImageDraw.Draw(b) for b in blurs]
+
+        width, height = self.manager.image.size
+        fac = max(width / 1920, height / 1080)
+        w = int(4 * fac)
+
+        maxval = self.coeff + np.max(self.heatmap)
+        for ix, val in enumerate(self.heatmap):
+            val -= self.coeff
+            useblur = floor((val / maxval) * self.nsteps) + 1
+            useblur = max(min(useblur, self.nsteps - 1), 0)
+            for jx, drawer in enumerate(drawers):
+                if jx != useblur:
+                    self.manager.draw_hex(drawer, ix, (0, 0, 0, 0), width=w)
+                else:
+                    self.manager.draw_hex(drawer, ix, None, width=w)
+
+        image = blurs[0]
+        for b in blurs[1:]:
+            image.paste(b, (0, 0), b)
         image = image.convert('RGBA')
         self.qimage = ImageQt.ImageQt(image)
         return QPixmap.fromImage(self.qimage)
 
-    def uncover(self, indexes, privilege=False):
+    def uncover(self, privilege=False):
         if self.require_privilege and not privilege:
             return False
 
-        if np.isscalar(indexes):
-            indexes = np.array([indexes])
-
-        self.vis.flat[indexes] = True
+        new_coeff = min(self.coeff + self.step, self.max_coeff)
+        retval = new_coeff != self.coeff
+        self.coeff = new_coeff
+        return retval
 
     def modify(self, relx, rely):
         pass
-
 
 class MaskPicker:
 
